@@ -1,14 +1,12 @@
 # Ruler.Wpf
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![.NET Core][github-actions-badge]][github-actions]
-[![Quality Gate Status][sonar-badge]][sonar-url]
 
 
 In the WPF world, many controls exist, but it difficult to find a ruler. This project proposes a simple ruler usable in all Net Core 3.1 and Net Framework 4.7.2.
 
 <img src="doc/images/ruler-base.png"/>
 
-## Focused objectifs
+## Focused objectives
 - Performance
 - Simplicity
 - Customization
@@ -20,7 +18,7 @@ Features available in control are:
 - Dynamic scale on resize
 - Horizontal and vertical support (top and left position)
 - Mark linked to mouse position
-- Multi ruler synchronization
+- ~~Multi ruler synchronization~~ (i broke this with the new rendering system)
 - Multi cultures
 - Multiscale units
 - Styling sample
@@ -53,14 +51,11 @@ Use control as you need
 </ruler:Ruler
 ``` 
 
+## ScrollViewer
+This control now supports being added to scroll viewers. The rendering accesses the scroll viewer's viewport and extent sizes and horizontal offset (haven't implemented vertical yet but it can't be too hard to modify yourself) to calculate the "drawing/visible" area on screen (by default this stretches the control's entire width when not in a scroll viewer)
+
 
 ### Testabilty
 A WPF Net Core application shows how to use the ruler.
 
 <img src="doc/images/ruler-testapp.png"/>
-
-[github-actions]:                  https://github.com/xclemence/Ruler.Wpf/actions?query=workflow%3A".NET+Core"
-[github-actions-badge]:            https://github.com/xclemence/Ruler.Wpf/workflows/.NET%20Core/badge.svg?branch=master
-
-[sonar-badge]:                     https://sonarcloud.io/api/project_badges/measure?project=xclemence_Ruler.Wpf&metric=alert_status
-[sonar-url]:                       https://sonarcloud.io/dashboard?id=xclemence_Ruler.Wpf

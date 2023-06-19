@@ -10,23 +10,20 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Windows;
 
-namespace RulerControl.Test
-{
-    public partial class MainWindow : Window, INotifyPropertyChanged
-    {
+namespace RulerControl.Test {
+    public partial class MainWindow : Window, INotifyPropertyChanged {
         private string unit;
 
         public event PropertyChangedEventHandler PropertyChanged;
 
-        public MainWindow()
-        {
+        public MainWindow() {
             InitializeComponent();
 
             ValueStepTransform = UpdateStepValues;
             DataContext = this;
         }
 
-        public IEnumerable<int> MajorStep { get; } = new [] { 1, 2, 5 };
+        public IEnumerable<int> MajorStep { get; } = new[] {1, 2, 5};
 
         public Func<double, double> ValueStepTransform { get; }
 
@@ -34,30 +31,26 @@ namespace RulerControl.Test
         public CultureInfo CultureFr { get; } = new CultureInfo("fr-fr");
         public CultureInfo CultureCustom { get; } = CreateCustomCulture();
 
-        public string Unit
-        {
+        public string Unit {
             get => unit;
-            set
-            {
-                if (unit == value) return;
+            set {
+                if (unit == value)
+                    return;
 
                 unit = value;
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Unit)));
             }
         }
 
-        static private CultureInfo CreateCustomCulture()
-        {
+        static private CultureInfo CreateCustomCulture() {
             var culture = CultureInfo.InvariantCulture.Clone() as CultureInfo;
             culture.NumberFormat.NumberGroupSeparator = "X";
 
             return culture;
         }
 
-        private double UpdateStepValues(double stepValue)
-        {
-            if (stepValue < 1)
-            {
+        private double UpdateStepValues(double stepValue) {
+            if (stepValue < 1) {
                 Unit = "* 1000";
                 return stepValue * 1000;
             }

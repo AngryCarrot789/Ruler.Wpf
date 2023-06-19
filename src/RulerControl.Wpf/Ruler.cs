@@ -1,265 +1,238 @@
 ﻿//  
-// Copyright (c) Xavier CLEMENCE (xavier.clemence@gmail.com). All rights reserved.  
+// Copyright (c) Xavier CLEMENCE (xavier.clemence@gmail.com) and REghZy/AngryCarrot789. All rights reserved.
 // Licensed under the MIT License. See LICENSE file in the project root for full license information. 
 // Ruler Wpf Version 3.0
 // 
 
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using System.Reactive.Linq;
-using System.Reactive.Subjects;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using RulerControl.Wpf.PositionManagers;
+using FramePFX.Controls.xclemence.RulerWPF.PositionManagers;
+using RulerControl.Wpf;
+using Rect = System.Windows.Rect;
 
-namespace RulerControl.Wpf
-{
-    [SuppressMessage("Microsoft.Usage", "CA2213:DisposableFieldsShouldBeDisposed", MessageId = "updateSubject", Justification ="Managed by unload method")]
-    [SuppressMessage("Microsoft.Usage", "CA2213:DisposableFieldsShouldBeDisposed", MessageId = "updateSubcription", Justification = "Managed by unload method")]
-    public class Ruler : RulerBase, IDisposable
-    {
-        private const int SubStepNumber = 10;
-
-        private readonly TimeSpan RefreshDelay = TimeSpan.FromMilliseconds(10);
-
+namespace FramePFX.Controls.xclemence.RulerWPF {
+    public class Ruler : RulerBase, IDisposable {
+        public const int SubStepNumber = 10;
         private bool disposedValue;
-
-        private Subject<bool> updateSubject;
-
-        private IDisposable updateSubcription;
-        private RulerPositionManager rulerPostionControl;
-        
+        private RulerPositionManager positionManager;
         private Line marker;
-        private Canvas firstMajorStepControl;
-        private Canvas labelsControl;
-        private Rectangle stepRepeaterControl;
-        private VisualBrush stepRepeaterBrush;
-
         private bool isLoadedInternal;
 
-        public Ruler()
-        {
-            UpdateRulerPosition(RulerPosition.Top);
-
-            Loaded += OnRulerLoaded;
+        public Ruler() {
+            this.positionManager = new TopRulerManager(this);
+            this.Loaded += this.OnRulerLoaded;
         }
 
-        private Line Marker => marker ?? (marker = Template.FindName("marker", this) as Line);
-        private Canvas FirstMajorStepControl => firstMajorStepControl ?? (firstMajorStepControl = Template.FindName("firstMajorStepControl", this) as Canvas);
-        private Rectangle StepRepeaterControl => stepRepeaterControl ?? (stepRepeaterControl = Template.FindName("stepRepeaterControl", this) as Rectangle);
-        private VisualBrush StepRepeaterBrush => stepRepeaterBrush ?? (stepRepeaterBrush = Template.FindName("stepRepeaterBrush", this) as VisualBrush);
-        private Canvas LabelsControl => labelsControl ?? (labelsControl = Template.FindName("labelsControl", this) as Canvas);
+        private Line Marker => this.marker ?? (this.marker = this.Template.FindName("marker", this) as Line);
 
-        private void OnRulerLoaded(object sender, RoutedEventArgs e)
-        {
-            Loaded -= OnRulerLoaded;
+        private ScrollViewer scroller;
 
-            SizeChanged += OnRulerSizeChanged;
-            Unloaded += OnRulerUnloaded;
-            
-            updateSubject = new Subject<bool>();
-            updateSubcription = updateSubject.Throttle(RefreshDelay)
-                                             .Subscribe(_ => Application.Current.Dispatcher.BeginInvoke(new Action(() => DrawRuler())));
+        private void OnRulerLoaded(object sender, RoutedEventArgs e) {
+            this.Loaded -= this.OnRulerLoaded;
+            this.SizeChanged += this.OnRulerSizeChanged;
+            this.Unloaded += this.OnRulerUnloaded;
+            this.isLoadedInternal = true;
 
-            isLoadedInternal = true;
-            RefreshRuler();
-        }
-
-        private void OnRulerUnloaded(object sender, RoutedEventArgs e) => UnloadControl();
-
-        protected override void OnMouseMove(MouseEventArgs e)
-        {
-            base.OnMouseMove(e);
-
-            if (e == null) return;
-
-            var mousePosition = e.GetPosition(this);
-
-            UpdateMarkerPosition(mousePosition);
-        }
-
-        private void OnExternalMouseMouve(object sender, MouseEventArgs e)
-        {
-            var mousePosition = e.GetPosition(this);
-
-            UpdateMarkerPosition(mousePosition);
-        }
-
-        protected override void UpdateRulerPosition(RulerPosition position)
-        {
-            if(position == RulerPosition.Left)
-                rulerPostionControl =  new LeftRulerManager(this);
-            else
-                rulerPostionControl = new TopRulerManager(this);
-        }
-
-        private void UpdateMarkerPosition(Point point)
-        {
-            if (Marker == null || rulerPostionControl == null)
+            // allows high performance rendering, so that we aren't rendering stuff that's offscreen
+            this.scroller = VisualTreeUtils.FindVisualParent<ScrollViewer>(this);
+            if (this.scroller == null) {
                 return;
+            }
 
-            var positionUpdated = rulerPostionControl.UpdateMakerPosition(Marker, point);
-
-            Marker.Visibility = positionUpdated ? Visibility.Visible : Visibility.Collapsed;
+            this.scroller.SizeChanged += this.OnScrollerOnSizeChanged;
+            this.scroller.ScrollChanged += this.OnScrollerOnScrollChanged;
+            this.InvalidateVisual();
         }
 
-        private void OnRulerSizeChanged(object sender, SizeChangedEventArgs e) => RefreshRuler();
+        private void OnScrollerOnSizeChanged(object o, SizeChangedEventArgs e) {
+            this.InvalidateVisual();
+        }
 
-        public override void RefreshRuler() => updateSubject?.OnNext(true);
-        
-        private bool CanDrawRuler() => ValidateSize() && (CanDrawSlaveMode() || CanDrawMasterMode());
+        private void OnScrollerOnScrollChanged(object o, ScrollChangedEventArgs e) {
+            this.InvalidateVisual();
+        }
 
-        private bool ValidateSize() => ActualWidth > 0 && ActualHeight > 0;
-
-        private bool CanDrawSlaveMode() => SlaveStepProperties != null;
-        private bool CanDrawMasterMode() => (MajorStepValues != null && !double.IsNaN(MaxValue) && MaxValue > 0);
-
-        private void DrawRuler()
-        {
-            if (!CanDrawRuler()) return;
-
-            var (pixelStep, valueStep) = GetStepProperties();
-
-            var stepNumber = Math.Ceiling(rulerPostionControl.GetSize() / pixelStep);
-
-            var subPixelSize = pixelStep / SubStepNumber;
-
-            FirstMajorStepControl.Children.Clear();
-            LabelsControl.Children.Clear();
-            
-            GenerateSubSteps(subPixelSize, 0);
-
-            var majorLinePosition = DisplayZeroLine ? 0 : pixelStep;
-            FirstMajorStepControl.Children.Add(rulerPostionControl.CreateMajorLine(majorLinePosition));
-
-            rulerPostionControl.UpdateFirstStepControl(FirstMajorStepControl, pixelStep);
-            rulerPostionControl.UpdateStepRepeaterControl(StepRepeaterControl, StepRepeaterBrush, pixelStep);
-
-            StepRepeaterBrush.Visual = FirstMajorStepControl;
-
-            double offset;
-            double offsetToCheckDisplay;
-            for (int i = 0; i < stepNumber; ++i)
-            {
-                offset = pixelStep * i;
-                offsetToCheckDisplay = TextOverflow == RulerTextOverflow.Hidden ? offset + pixelStep - subPixelSize : offset;
-
-                if (offsetToCheckDisplay <= rulerPostionControl.GetSize())
-                    LabelsControl.Children.Add(rulerPostionControl.CreateText(i * valueStep, offset));
+        /// <summary>
+        /// Gets the amount of drawing space this ruler should use to draw
+        /// </summary>
+        /// <param name="availableSize">
+        /// An out parameter for the amount of actual space that was available.
+        /// By default, it defaults to the width/height of the return value, however, if
+        /// this ruler is placed somewhere in a scroll viewer, then it returns the total amount of space available by the scrollviewer</param>
+        /// <returns></returns>
+        public Rect GetDrawingBounds(out Size availableSize) {
+            availableSize = this.RenderSize;
+            if (this.scroller != null) {
+                double offsetX = this.scroller.HorizontalOffset, offsetY = this.scroller.VerticalOffset;
+                // availableSize = new Size(this.scroller.ExtentWidth, this.scroller.ExtentHeight);
+                return new Rect(offsetX, offsetY, Math.Min(this.scroller.ViewportWidth, this.ActualWidth), Math.Min(this.scroller.ViewportHeight, this.ActualHeight));
+            }
+            else {
+                return new Rect(new Point(), this.RenderSize);
             }
         }
 
-        private (double pixelStep, double valueStep) GetStepProperties()
-        {
+        private void OnRulerUnloaded(object sender, RoutedEventArgs e) => this.UnloadControl();
+
+        protected override void OnMouseMove(MouseEventArgs e) {
+            base.OnMouseMove(e);
+            Point mousePosition = e.GetPosition(this);
+            this.UpdateMarkerPosition(mousePosition);
+        }
+
+        private void OnExternalMouseMouve(object sender, MouseEventArgs e) {
+            Point mousePosition = e.GetPosition(this);
+            this.UpdateMarkerPosition(mousePosition);
+        }
+
+        protected override void UpdateRulerPosition(RulerPosition position) {
+            if (position == RulerPosition.Left)
+                this.positionManager = new LeftRulerManager(this);
+            else
+                this.positionManager = new TopRulerManager(this);
+        }
+
+        private void UpdateMarkerPosition(Point point) {
+            if (this.Marker == null || this.positionManager == null) {
+                return;
+            }
+
+            bool positionUpdated = this.positionManager.OnUpdateMakerPosition(this.Marker, point);
+            this.Marker.Visibility = positionUpdated ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void OnRulerSizeChanged(object sender, SizeChangedEventArgs e) => this.InvalidateVisual();
+
+        private bool CanDrawRuler() => this.ValidateSize() && (this.CanDrawSlaveMode() || this.CanDrawMasterMode());
+
+        private bool ValidateSize() => this.ActualWidth > 0 && this.ActualHeight > 0;
+
+        private bool CanDrawSlaveMode() => this.SlaveStepProperties != null;
+        private bool CanDrawMasterMode() => (this.MajorStepValues != null && !double.IsNaN(this.MaxValue) && this.MaxValue > 0);
+
+        protected override void OnRender(DrawingContext dc) {
+            base.OnRender(dc);
+            if (this.CanDrawRuler()) {
+                Rect db = this.GetDrawingBounds(out Size size);
+                (double pixel_step, double value_step) = this.GetStepProperties();
+                double major_line_pos = this.DisplayZeroLine ? 0 : pixel_step;
+                double subpixel_size = pixel_step / SubStepNumber;
+
+                // calculate visible pixel bounds
+                double pixel_bound_begin = this.Position == RulerPosition.Top ? db.Left : db.Top;
+                double pixel_bound_end = this.Position == RulerPosition.Top ? db.Right : db.Bottom;
+
+                // calculate an initial offset instead of looping until we get into a visible region
+                // Flooring may result in us drawing things partially offscreen to the left, which is kinda required
+                int initial_offset = (int) Math.Floor(pixel_bound_begin / pixel_step);
+                for (int i = initial_offset; true; i++) {
+                    double pixel = i * pixel_step;
+                    if (pixel <= pixel_bound_end) {
+                        for (int y = 1; y < SubStepNumber; ++y) {
+                            double sub_pixel = pixel + y * subpixel_size;
+                            this.positionManager.DrawMinorLine(dc, sub_pixel);
+                        }
+
+                        double text_value = i * value_step;
+                        this.positionManager.DrawMajorLine(dc, pixel + major_line_pos);
+                        this.positionManager.DrawText(dc, text_value, pixel);
+                    }
+                    else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // public static void Draw(DrawingContext dc, Rect render_area, Size control_size, double pixel_offset) {
+        //     double cycles = Math.Ceiling(rect.Left - 0) / subPixelSize;
+        //     double pixel_start = cycles * subPixelSize;
+        //     double pixel = pixel_start;
+        //     while (pixel >= rect.Left && pixel <= ) {
+        //     }
+        // }
+
+        private (double pixelStep, double valueStep) GetStepProperties() {
             double pixelStep;
             double valueStep;
 
-            if (SlaveStepProperties == null)
-            {
-                (pixelStep, valueStep) = GetMajorStep();
-                StepProperties = new RulerStepProperties { PixelSize = pixelStep, Value = valueStep };
+            if (this.SlaveStepProperties == null) {
+                (pixelStep, valueStep) = this.GetMajorStep();
+                this.StepProperties = new RulerStepProperties {PixelSize = pixelStep, Value = valueStep};
             }
-            else
-            {
-                (pixelStep, valueStep) = SlaveStepProperties;
+            else {
+                (pixelStep, valueStep) = this.SlaveStepProperties;
             }
 
-            if (ValueStepTransform != null)
-                valueStep = ValueStepTransform(valueStep);
+            if (this.ValueStepTransform != null)
+                valueStep = this.ValueStepTransform(valueStep);
 
             return (pixelStep, valueStep);
         }
 
-        private (double pixelStep, double valueStep) GetMajorStep()
-        {
+        private (double pixelStep, double valueStep) GetMajorStep() {
             // find thes minimal position of first major step between 0 and 1
-            var normalizeMinSize = MinPixelSize * SubStepNumber / rulerPostionControl.GetSize();
+            double normalizeMinSize = this.MinPixelSize * SubStepNumber / this.positionManager.GetSize();
 
             // calculate the real value of this step (min step value)
-            var minStepValue = normalizeMinSize * MaxValue;
+            double minStepValue = normalizeMinSize * this.MaxValue;
 
             // calculate magnetude of min step value (power of ten)
-            var minStepValueMagnitude = (int) Math.Floor(Math.Log10(minStepValue));
+            int minStepValueMagnitude = (int) Math.Floor(Math.Log10(minStepValue));
 
             // normalise min step value between 0 and 10 (according to Major step value scale)
-            var normalizeMinStepValue = minStepValue / Math.Pow(10, minStepValueMagnitude);
+            double normalizeMinStepValue = minStepValue / Math.Pow(10, minStepValueMagnitude);
 
             // select best step according values defined by customer
-            var normalizeRealStepValue = MajorStepValues.Union(new int[] { 10 }).First(x => x > normalizeMinStepValue);
+            int normalizeRealStepValue = this.MajorStepValues.Union(new int[] {10}).First(x => x > normalizeMinStepValue);
 
             // apply magnitude to return inside  initial value scale
-            var realStepValue = normalizeRealStepValue * Math.Pow(10, minStepValueMagnitude);
+            double realStepValue = normalizeRealStepValue * Math.Pow(10, minStepValueMagnitude);
 
             // find size of real value (pixel)
-            var pixelStep = rulerPostionControl.GetSize() * realStepValue / MaxValue;
+            double pixelStep = this.positionManager.GetSize() * realStepValue / this.MaxValue;
 
             return (pixelStep, valueStep: realStepValue);
         }
 
-        private void GenerateSubSteps(double subPixelSize, double offset)
-        {
-            double subOffset;
-
-            for (var y = 1; y < SubStepNumber; ++y)
-            {
-                subOffset = offset + y * subPixelSize;
-
-                if (subOffset > rulerPostionControl.GetSize())
-                    continue;
-
-                FirstMajorStepControl.Children.Add(rulerPostionControl.CreateMinorLine(subOffset));
-            }
-        }
-
-        protected override void UpdateMarkerControlReference(UIElement oldElement, UIElement newElement) 
-        {
+        protected override void UpdateMarkerControlReference(UIElement oldElement, UIElement newElement) {
             if (oldElement != null)
-                oldElement.MouseMove -= OnExternalMouseMouve;
+                oldElement.MouseMove -= this.OnExternalMouseMouve;
 
             if (newElement != null)
-                newElement.MouseMove += OnExternalMouseMouve;
+                newElement.MouseMove += this.OnExternalMouseMouve;
         }
 
-        private void UnloadControl()
-        {
-            if (isLoadedInternal)
-            {
-                if (MarkerControlReference != null)
-                    MarkerControlReference.MouseMove -= OnExternalMouseMouve;
-
-                updateSubcription?.Dispose();
-                updateSubject?.Dispose();
-                updateSubject = null;
-
-                isLoadedInternal = false;
+        private void UnloadControl() {
+            if (this.isLoadedInternal) {
+                if (this.MarkerControlReference != null)
+                    this.MarkerControlReference.MouseMove -= this.OnExternalMouseMouve;
+                this.isLoadedInternal = false;
             }
         }
 
         #region IDisposable Support
 
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!disposedValue)
-            {
+        protected virtual void Dispose(bool disposing) {
+            if (!this.disposedValue) {
                 if (disposing)
-                    UnloadControl();
+                    this.UnloadControl();
 
-                disposedValue = true;
+                this.disposedValue = true;
             }
         }
 
         // This code added to correctly implement the disposable pattern.
-        public void Dispose()
-        {
-            Dispose(true);
+        public void Dispose() {
+            this.Dispose(true);
             GC.SuppressFinalize(this);
         }
-        #endregion
 
+        #endregion
     }
 }
-
